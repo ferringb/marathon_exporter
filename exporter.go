@@ -80,6 +80,9 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 	if err = e.exportMetrics(ch); err != nil {
 		return
 	}
+	if err = e.exportTasks(ch); err != nil {
+		return
+	}
 
 	e.Counters.mutex.Lock()
 	defer e.Counters.mutex.Unlock()
@@ -126,6 +129,40 @@ func (e *Exporter) exportMetrics(ch chan<- prometheus.Metric) (err error) {
 
 	e.scrapeMetrics(json, ch)
 	return
+}
+
+func (e *Exporter) exportTasks(ch chan<- prometheus.Metric) (err error) {
+	content, err := e.scraper.Scrape("v2/tasks")
+	if err != nil {
+		log.Debugf("Problem scraping tasks endpoint: %v\n", err)
+		return
+	}
+
+	json, err := gabs.ParseJSON(content)
+	if err != nil {
+		log.Debugf("Problem parsing metrics response: %v\n", err)
+		return
+	}
+
+	e.scrapeTasks(json, ch)
+	return
+}
+
+func (e *Exporter) scrapeTasks(json *gabs.Container, ch chan<- prometheus.Metric) {
+	elements, _ := json.S("tasks").Children()
+
+	// Create a metric on the fly to avoid staleness issues.
+	desc := prometheus.NewDesc("marathon_task_state", "Task state on a per instance basis", []string{"app", "id", "slave_id", "state", "version"}, prometheus.Labels{})
+	for _, task := range elements {
+		labels := []string{
+			task.Path("appId").Data().(string),
+			task.Path("id").Data().(string),
+			task.Path("slaveId").Data().(string),
+			task.Path("state").Data().(string),
+			task.Path("version").Data().(string),
+		}
+		ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, 1, labels...)
+	}
 }
 
 func (e *Exporter) scrapeApps(json *gabs.Container, ch chan<- prometheus.Metric) {
