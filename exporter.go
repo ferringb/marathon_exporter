@@ -14,15 +14,44 @@ import (
 
 const defaultNamespace = "marathon"
 
+type LabelsExporter struct {
+	stringConversions map[string]*prometheus.Desc
+}
+
+func NewLabelsExporter(namespace string, strings []string) (*LabelsExporter, error) {
+	m := make(map[string]*prometheus.Desc)
+	for _, val := range strings {
+		m[val] = prometheus.NewDesc(
+			fmt.Sprintf("%s_app_labels_%s", namespace, val),
+			fmt.Sprintf("Marathon apps with the label %s", val),
+			[]string{"app", "app_version", "value"},
+			prometheus.Labels{},
+		)
+	}
+	return &LabelsExporter{
+		stringConversions: m,
+	}, nil
+}
+
+func (le *LabelsExporter) scrapeLabels(app string, app_version string, json *gabs.Container, ch chan<- prometheus.Metric) {
+	labels := json.Path("labels").Data().(map[string]interface{})
+	for key, desc := range le.stringConversions {
+		if val, ok := labels[key]; ok {
+			ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, 1, app, app_version, val.(string))
+		}
+	}
+}
+
 type Exporter struct {
-	scraper      Scraper
-	duration     prometheus.Gauge
-	scrapeError  prometheus.Gauge
-	up           prometheus.Gauge
-	totalErrors  prometheus.Counter
-	totalScrapes prometheus.Counter
-	Counters     *CounterContainer
-	Gauges       *GaugeContainer
+	scraper        Scraper
+	duration       prometheus.Gauge
+	scrapeError    prometheus.Gauge
+	up             prometheus.Gauge
+	totalErrors    prometheus.Counter
+	totalScrapes   prometheus.Counter
+	Counters       *CounterContainer
+	Gauges         *GaugeContainer
+	labelsExporter *LabelsExporter
 }
 
 // Describe implements prometheus.Collector.
@@ -214,6 +243,7 @@ func (e *Exporter) scrapeApps(json *gabs.Container, ch chan<- prometheus.Metric)
 
 			gauge.WithLabelValues(id, version).Set(count)
 		}
+		e.labelsExporter.scrapeLabels(id, version, app, ch)
 	}
 }
 
@@ -467,7 +497,12 @@ func (e *Exporter) scrapeTimer(key string, json *gabs.Container) (bool, error) {
 	return new, nil
 }
 
-func NewExporter(s Scraper, namespace string) *Exporter {
+func NewExporter(s Scraper, namespace string, labelStrings []string) (*Exporter, error) {
+	le, err := NewLabelsExporter(namespace, labelStrings)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Exporter{
 		scraper:  s,
 		Counters: NewCounterContainer(namespace),
@@ -501,5 +536,6 @@ func NewExporter(s Scraper, namespace string) *Exporter {
 			Name:      "errors_total",
 			Help:      "Total number of times the exporter experienced errors collecting Marathon metrics.",
 		}),
-	}
+		labelsExporter: le,
+	}, nil
 }

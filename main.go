@@ -13,6 +13,17 @@ import (
 	"github.com/prometheus/common/log"
 )
 
+type labelFlags []string
+
+func (lf *labelFlags) Set(value string) error {
+	*lf = append(*lf, value)
+	return nil
+}
+
+func (lf *labelFlags) String() string {
+	return "label flags"
+}
+
 var (
 	listenAddress = flag.String(
 		"web.listen-address", ":9088",
@@ -25,7 +36,14 @@ var (
 	marathonUri = flag.String(
 		"marathon.uri", "http://marathon.mesos:8080",
 		"URI of Marathon")
+	stringLabels labelFlags
 )
+
+func init() {
+	flag.Var(&stringLabels,
+		"app.labels.string",
+		"Which marathon string labels to export")
+}
 
 func marathonConnect(uri *url.URL) error {
 	config := marathon.NewDefaultConfig()
@@ -83,7 +101,10 @@ func main() {
 		time.Sleep(retryTimeout)
 	}
 
-	exporter := NewExporter(&scraper{uri}, defaultNamespace)
+	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, stringLabels)
+	if err != nil {
+		log.Fatalf("failed to create exporter: %s", err)
+	}
 	prometheus.MustRegister(exporter)
 
 	http.Handle(*metricsPath, prometheus.Handler())
