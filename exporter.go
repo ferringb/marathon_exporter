@@ -18,17 +18,31 @@ const defaultNamespace = "marathon"
 
 type LabelConverter struct {
 	*regexp.Regexp
-	MetricLabel string
+	MetricLabel        string
+	SubexpNameDefaults map[string]string
 }
 
-func NewLabelConverter(label string, regex string) (*LabelConverter, error) {
+func NewLabelConverter(label string, regex string, defaults map[string]string) (*LabelConverter, error) {
 	r, err := regexp.Compile(regex)
 	if err != nil {
 		return nil, err
 	}
+	for key, _ := range defaults {
+		found := false
+		for _, group_name := range r.SubexpNames() {
+			if group_name == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("defaults key %s doesn't match a regex named group", key)
+		}
+	}
 	return &LabelConverter{
 		r,
 		label,
+		defaults,
 	}, nil
 }
 
@@ -50,7 +64,13 @@ func (lc *LabelConverter) Convert(label string) []string {
 	values := []string{}
 	for idx, name := range lc.SubexpNames() {
 		if name != "" {
-			values = append(values, matches[idx])
+			val := matches[idx]
+			if val == "" {
+				if default_val, ok := lc.SubexpNameDefaults[name]; ok {
+					val = default_val
+				}
+			}
+			values = append(values, val)
 		}
 	}
 	return values

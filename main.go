@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,13 +18,27 @@ import (
 type labelFlags []*LabelConverter
 
 func (lf *labelFlags) Set(value string) error {
-	// check if it's regexp=label
-	content := strings.SplitN(value, "=", 2)
+	// consider zoidberg_(port_(?P<port>\d+))?_app_name=zoidberg_app;port=0
+	// that finds zoidberg_port_1_app_name and creates port="1" label.
+	// That also finds zoidberg_app_name, and creates port="0" label
+	content := strings.Split(value, ";")
+
+	defaults := make(map[string]string, len(content)-1)
+	// build defaults first.
+	for _, chunk := range content[1:] {
+		chunks := strings.Split(chunk, "=")
+		if len(chunks) != 2 {
+			return fmt.Errorf("defaults chunk '%s' isn't in key=value format", chunk)
+		}
+		defaults[strings.TrimSpace(chunks[0])] = strings.TrimSpace(chunks[1])
+	}
+	// process the label regexp next.
+	content = strings.SplitN(strings.TrimSpace(content[0]), "=", 2)
 	if len(content) == 1 {
 		// not a regexp/rename, just a simple name.
 		content = append(content, value)
 	}
-	lc, err := NewLabelConverter(content[1], content[0])
+	lc, err := NewLabelConverter(strings.TrimSpace(content[1]), strings.TrimSpace(content[0]), defaults)
 	if err != nil {
 		return err
 	}
@@ -53,24 +68,31 @@ var (
 )
 
 func init() {
+	common := `
+
+Format is regex[=rename][;label_key=label_default].  The first group is for matching and renaming metric- the following groups are used as defaults.
+
+Consider: 'zoidberg(?:_port_(?P<port>\\d+))?_app_name = zoidberg ; port = 0'.  Given an app label of zoidberg_port_1_app_name,
+this will result in metric 'marathon_app_label_zoidberg{port="1"}'.  Given an app label of zoidberg_app_name, the default port=0
+kicks in and it results in 'marathon_app_label_zoidberg{port="0"}'.
+
+Only named regex groups are supported; if the grouping is such that the value doesn't have to match, and no default matches that name, then '' is the label value.
+
+Finally, note that spaces are not required between delimiters, just suggested for readability.
+`
+
 	flag.Var(&boolLabels,
 		"app.labels.bool",
-		"Which marathon string labels to export as a constant gauge, ignoring the label value.  Either is the label name, or can be 'regexp=label' to support renaming of "+
-			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
-			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} 1",
+		"Export a constant gauge of 1 for any app that has a label that matches this.  The label value is dropped."+common,
 	)
 	flag.Var(&stringLabels,
 		"app.labels.string",
-		"Which marathon string labels to export.  Either is the label name, or can be 'regexp=label' to support renaming of "+
-			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
-			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0', value='label-value'} 1",
+		"Export a constant gauge of 1 for any app that has a label that matches, exporting the label value as a label named 'value'."+common,
 	)
 	flag.Var(&floatLabels,
 		"app.labels.float",
-		"Which marathon string labels to export the value as a float.  Either is the label name, or can be 'regexp=label' to support renaming of "+
-			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
-			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} <label_value>.  If the label value cannot be converted"+
-			" to a float, the label value is dropped",
+		"Export the label value as a gauge for any app that has a label that matches, exporting the label value as a label named 'value'.\n"+
+			"If the label value cannot be converted to a float, it's dropped instead."+common,
 	)
 }
 
