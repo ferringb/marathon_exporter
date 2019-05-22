@@ -48,6 +48,7 @@ var (
 		"marathon.uri", "http://marathon.mesos:8080",
 		"URI of Marathon")
 	stringLabels labelFlags
+	floatLabels  labelFlags
 )
 
 func init() {
@@ -56,6 +57,13 @@ func init() {
 		"Which marathon string labels to export.  Either is the label name, or can be 'regexp=label' to support renaming of "+
 			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
 			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} 1",
+	)
+	flag.Var(&floatLabels,
+		"app.labels.float",
+		"Which marathon string labels to export the value as a float.  Either is the label name, or can be 'regexp=label' to support renaming of "+
+			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
+			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} <label_value>.  If the label value cannot be converted"+
+			" to a float, the label value is dropped",
 	)
 }
 
@@ -115,7 +123,7 @@ func main() {
 		time.Sleep(retryTimeout)
 	}
 
-	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, stringLabels)
+	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, stringLabels, floatLabels)
 	if err != nil {
 		log.Fatalf("failed to create exporter: %s", err)
 	}

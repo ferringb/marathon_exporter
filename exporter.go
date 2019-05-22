@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,22 +58,37 @@ func (lc *LabelConverter) Convert(label string) []string {
 
 type LabelsExporter struct {
 	stringConversions map[*LabelConverter]*prometheus.Desc
+	floatConversions  map[*LabelConverter]*prometheus.Desc
 }
 
-func NewLabelsExporter(namespace string, string_conversions []*LabelConverter) (*LabelsExporter, error) {
-	m := make(map[*LabelConverter]*prometheus.Desc)
+func NewLabelsExporter(namespace string, string_conversions []*LabelConverter, float_conversions []*LabelConverter) (*LabelsExporter, error) {
+	string_map := make(map[*LabelConverter]*prometheus.Desc)
 	for _, val := range string_conversions {
 		labels := []string{"app", "app_version", "value"}
 		labels = append(labels, val.Labels()...)
-		m[val] = prometheus.NewDesc(
+		string_map[val] = prometheus.NewDesc(
 			fmt.Sprintf("%s_app_label_%s", namespace, val.MetricLabel),
-			fmt.Sprintf("Marathon apps with the label %s", val),
+			fmt.Sprintf("Marathon apps with the label %s and constant gauge of 1", val),
 			labels,
 			prometheus.Labels{},
 		)
 	}
+
+	float_map := make(map[*LabelConverter]*prometheus.Desc)
+	for _, val := range float_conversions {
+		labels := []string{"app", "app_version"}
+		labels = append(labels, val.Labels()...)
+		float_map[val] = prometheus.NewDesc(
+			fmt.Sprintf("%s_app_label_%s", namespace, val.MetricLabel),
+			fmt.Sprintf("Marathon apps with the label %s, and label as the gauge", val),
+			labels,
+			prometheus.Labels{},
+		)
+	}
+
 	return &LabelsExporter{
-		stringConversions: m,
+		stringConversions: string_map,
+		floatConversions:  float_map,
 	}, nil
 }
 
@@ -90,7 +106,26 @@ func (le *LabelsExporter) scrapeLabels(app string, app_version string, json *gab
 				ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, 1, metric_labels...)
 			}
 		}
+		// lazy convert the value; this is also to only warn if a match exists and we couldn't convert the value.
+		var value_f *float64 = nil
+		for converter, desc := range le.floatConversions {
+			metric_labels := converter.Convert(label)
+			if metric_labels != nil {
+				if value_f == nil {
+					if f, err := strconv.ParseFloat(value, 64); err != nil {
+						log.Warnf("Failed to convert app %s label %s, value %s to float: %s", app, label, value, err)
+						// if we can't convert it to a float, skip any futher attempts for this label.
+						break
+					} else {
+						value_f = &f
+					}
+				}
+				metric_labels = append([]string{app, app_version}, metric_labels...)
+				ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, *value_f, metric_labels...)
+			}
+		}
 	}
+
 }
 
 type Exporter struct {
@@ -548,8 +583,8 @@ func (e *Exporter) scrapeTimer(key string, json *gabs.Container) (bool, error) {
 	return new, nil
 }
 
-func NewExporter(s Scraper, namespace string, labelStrings []*LabelConverter) (*Exporter, error) {
-	le, err := NewLabelsExporter(namespace, labelStrings)
+func NewExporter(s Scraper, namespace string, labelStrings []*LabelConverter, labelFloats []*LabelConverter) (*Exporter, error) {
+	le, err := NewLabelsExporter(namespace, labelStrings, labelFloats)
 	if err != nil {
 		return nil, err
 	}
