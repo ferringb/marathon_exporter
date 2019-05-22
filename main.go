@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/matt-deboer/go-marathon"
@@ -13,10 +14,20 @@ import (
 	"github.com/prometheus/common/log"
 )
 
-type labelFlags []string
+type labelFlags []*LabelConverter
 
 func (lf *labelFlags) Set(value string) error {
-	*lf = append(*lf, value)
+	// check if it's regexp=label
+	content := strings.SplitN(value, "=", 2)
+	if len(content) == 1 {
+		// not a regexp/rename, just a simple name.
+		content = append(content, value)
+	}
+	lc, err := NewLabelConverter(content[1], content[0])
+	if err != nil {
+		return err
+	}
+	*lf = append(*lf, lc)
 	return nil
 }
 
@@ -42,7 +53,10 @@ var (
 func init() {
 	flag.Var(&stringLabels,
 		"app.labels.string",
-		"Which marathon string labels to export")
+		"Which marathon string labels to export.  Either is the label name, or can be 'regexp=label' to support renaming of "+
+			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
+			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} 1",
+	)
 }
 
 func marathonConnect(uri *url.URL) error {
