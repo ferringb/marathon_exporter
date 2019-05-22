@@ -47,16 +47,23 @@ var (
 	marathonUri = flag.String(
 		"marathon.uri", "http://marathon.mesos:8080",
 		"URI of Marathon")
+	boolLabels   labelFlags
 	stringLabels labelFlags
 	floatLabels  labelFlags
 )
 
 func init() {
+	flag.Var(&boolLabels,
+		"app.labels.bool",
+		"Which marathon string labels to export as a constant gauge, ignoring the label value.  Either is the label name, or can be 'regexp=label' to support renaming of "+
+			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
+			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} 1",
+	)
 	flag.Var(&stringLabels,
 		"app.labels.string",
 		"Which marathon string labels to export.  Either is the label name, or can be 'regexp=label' to support renaming of "+
 			"labels on the fly, or deriving sub labels.  For example 'zoidberg_(?:port_(?P<port>\\d+))_app_name=zoidberg' would"+
-			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0'} 1",
+			"match zoidberg_port_0_app_name, creating marathon_app_label_zoidberg{port='0', value='label-value'} 1",
 	)
 	flag.Var(&floatLabels,
 		"app.labels.float",
@@ -123,7 +130,7 @@ func main() {
 		time.Sleep(retryTimeout)
 	}
 
-	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, stringLabels, floatLabels)
+	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, boolLabels, stringLabels, floatLabels)
 	if err != nil {
 		log.Fatalf("failed to create exporter: %s", err)
 	}

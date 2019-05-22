@@ -57,18 +57,31 @@ func (lc *LabelConverter) Convert(label string) []string {
 }
 
 type LabelsExporter struct {
+	boolConversions   map[*LabelConverter]*prometheus.Desc
 	stringConversions map[*LabelConverter]*prometheus.Desc
 	floatConversions  map[*LabelConverter]*prometheus.Desc
 }
 
-func NewLabelsExporter(namespace string, string_conversions []*LabelConverter, float_conversions []*LabelConverter) (*LabelsExporter, error) {
+func NewLabelsExporter(namespace string, bool_conversions []*LabelConverter, string_conversions []*LabelConverter, float_conversions []*LabelConverter) (*LabelsExporter, error) {
+	bool_map := make(map[*LabelConverter]*prometheus.Desc)
+	for _, val := range bool_conversions {
+		labels := []string{"app", "app_version"}
+		labels = append(labels, val.Labels()...)
+		bool_map[val] = prometheus.NewDesc(
+			fmt.Sprintf("%s_app_label_%s", namespace, val.MetricLabel),
+			fmt.Sprintf("Marathon apps with the label %s and constant gauge of 1", val),
+			labels,
+			prometheus.Labels{},
+		)
+	}
+
 	string_map := make(map[*LabelConverter]*prometheus.Desc)
 	for _, val := range string_conversions {
 		labels := []string{"app", "app_version", "value"}
 		labels = append(labels, val.Labels()...)
 		string_map[val] = prometheus.NewDesc(
 			fmt.Sprintf("%s_app_label_%s", namespace, val.MetricLabel),
-			fmt.Sprintf("Marathon apps with the label %s and constant gauge of 1", val),
+			fmt.Sprintf("Marathon apps with the label %s, label value exported as 'value', and constant gauge of 1", val),
 			labels,
 			prometheus.Labels{},
 		)
@@ -80,13 +93,14 @@ func NewLabelsExporter(namespace string, string_conversions []*LabelConverter, f
 		labels = append(labels, val.Labels()...)
 		float_map[val] = prometheus.NewDesc(
 			fmt.Sprintf("%s_app_label_%s", namespace, val.MetricLabel),
-			fmt.Sprintf("Marathon apps with the label %s, and label as the gauge", val),
+			fmt.Sprintf("Marathon apps with the label %s, and label value as the gauge", val),
 			labels,
 			prometheus.Labels{},
 		)
 	}
 
 	return &LabelsExporter{
+		boolConversions:   bool_map,
 		stringConversions: string_map,
 		floatConversions:  float_map,
 	}, nil
@@ -99,6 +113,15 @@ func (le *LabelsExporter) scrapeLabels(app string, app_version string, json *gab
 		if !ok {
 			continue
 		}
+
+		for converter, desc := range le.boolConversions {
+			metric_labels := converter.Convert(label)
+			if metric_labels != nil {
+				metric_labels = append([]string{app, app_version}, metric_labels...)
+				ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, 1, metric_labels...)
+			}
+		}
+
 		for converter, desc := range le.stringConversions {
 			metric_labels := converter.Convert(label)
 			if metric_labels != nil {
@@ -583,8 +606,8 @@ func (e *Exporter) scrapeTimer(key string, json *gabs.Container) (bool, error) {
 	return new, nil
 }
 
-func NewExporter(s Scraper, namespace string, labelStrings []*LabelConverter, labelFloats []*LabelConverter) (*Exporter, error) {
-	le, err := NewLabelsExporter(namespace, labelStrings, labelFloats)
+func NewExporter(s Scraper, namespace string, labelBools []*LabelConverter, labelStrings []*LabelConverter, labelFloats []*LabelConverter) (*Exporter, error) {
+	le, err := NewLabelsExporter(namespace, labelBools, labelStrings, labelFloats)
 	if err != nil {
 		return nil, err
 	}
