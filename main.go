@@ -22,7 +22,7 @@ type defaultLabelFlags struct {
 func (dl *defaultLabelFlags) Set(value string) error {
 	content := strings.Split(value, "=")
 	if len(content) != 2 {
-		return fmt.Errorf("default label ''%s' isn't in label=value format", value)
+		return fmt.Errorf("default label '%s' isn't in label=value format", value)
 	}
 	if dl.labels == nil {
 		dl.labels = make(DefaultLabels)
@@ -102,8 +102,7 @@ kicks in and it results in 'marathon_app_label_zoidberg{port="0"}'.
 
 Only named regex groups are supported; if the grouping is such that the value doesn't have to match, and no default matches that name, then '' is the label value.
 
-Finally, note that spaces are not required between delimiters, just suggested for readability.
-`
+Finally, note that spaces are not required between delimiters, just suggested for readability.`
 
 	flag.Var(&boolLabels,
 		"app.labels.bool",
