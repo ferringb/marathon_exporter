@@ -16,6 +16,8 @@ import (
 
 const defaultNamespace = "marathon"
 
+type DefaultLabels map[string]string
+
 type LabelConverter struct {
 	*regexp.Regexp
 	MetricLabel        string
@@ -80,9 +82,10 @@ type LabelsExporter struct {
 	boolConversions   map[*LabelConverter]*prometheus.Desc
 	stringConversions map[*LabelConverter]*prometheus.Desc
 	floatConversions  map[*LabelConverter]*prometheus.Desc
+	defaultLabels     *DefaultLabels
 }
 
-func NewLabelsExporter(namespace string, bool_conversions []*LabelConverter, string_conversions []*LabelConverter, float_conversions []*LabelConverter) (*LabelsExporter, error) {
+func NewLabelsExporter(namespace string, defaultLabels *DefaultLabels, bool_conversions []*LabelConverter, string_conversions []*LabelConverter, float_conversions []*LabelConverter) (*LabelsExporter, error) {
 	bool_map := make(map[*LabelConverter]*prometheus.Desc)
 	for _, val := range bool_conversions {
 		labels := []string{"app", "app_version"}
@@ -123,17 +126,23 @@ func NewLabelsExporter(namespace string, bool_conversions []*LabelConverter, str
 		boolConversions:   bool_map,
 		stringConversions: string_map,
 		floatConversions:  float_map,
+		defaultLabels:     defaultLabels,
 	}, nil
 }
 
 func (le *LabelsExporter) scrapeLabels(app string, app_version string, json *gabs.Container, ch chan<- prometheus.Metric) {
-	app_labels := json.Path("labels").Data().(map[string]interface{})
-	for label, value_i := range app_labels {
-		value, ok := value_i.(string)
-		if !ok {
-			continue
+	raw_labels := json.Path("labels").Data().(map[string]interface{})
+	app_labels := make(map[string]string, len(*(le.defaultLabels))+len(raw_labels))
+	for k, v := range *(le.defaultLabels) {
+		app_labels[k] = v
+	}
+	for k, v := range raw_labels {
+		value, ok := v.(string)
+		if ok {
+			app_labels[k] = value
 		}
-
+	}
+	for label, value := range app_labels {
 		for converter, desc := range le.boolConversions {
 			metric_labels := converter.Convert(label)
 			if metric_labels != nil {
@@ -626,8 +635,8 @@ func (e *Exporter) scrapeTimer(key string, json *gabs.Container) (bool, error) {
 	return new, nil
 }
 
-func NewExporter(s Scraper, namespace string, labelBools []*LabelConverter, labelStrings []*LabelConverter, labelFloats []*LabelConverter) (*Exporter, error) {
-	le, err := NewLabelsExporter(namespace, labelBools, labelStrings, labelFloats)
+func NewExporter(s Scraper, namespace string, defaultLabels *DefaultLabels, labelBools []*LabelConverter, labelStrings []*LabelConverter, labelFloats []*LabelConverter) (*Exporter, error) {
+	le, err := NewLabelsExporter(namespace, defaultLabels, labelBools, labelStrings, labelFloats)
 	if err != nil {
 		return nil, err
 	}

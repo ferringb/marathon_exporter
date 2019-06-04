@@ -15,6 +15,29 @@ import (
 	"github.com/prometheus/common/log"
 )
 
+type defaultLabelFlags struct {
+	labels DefaultLabels
+}
+
+func (dl *defaultLabelFlags) Set(value string) error {
+	content := strings.Split(value, "=")
+	if len(content) != 2 {
+		return fmt.Errorf("default label ''%s' isn't in label=value format", value)
+	}
+	if dl.labels == nil {
+		dl.labels = make(DefaultLabels)
+	}
+	if existing, ok := dl.labels[content[0]]; ok && existing != content[1] {
+		return fmt.Errorf("default label '%s' tries to redefine existing default label value '%s' with %s", content[0], existing, content[1])
+	}
+	dl.labels[content[0]] = content[1]
+	return nil
+}
+
+func (dl *defaultLabelFlags) String() string {
+	return "default label"
+}
+
 type labelFlags []*LabelConverter
 
 func (lf *labelFlags) Set(value string) error {
@@ -62,9 +85,10 @@ var (
 	marathonUri = flag.String(
 		"marathon.uri", "http://marathon.mesos:8080",
 		"URI of Marathon")
-	boolLabels   labelFlags
-	stringLabels labelFlags
-	floatLabels  labelFlags
+	boolLabels    labelFlags
+	stringLabels  labelFlags
+	floatLabels   labelFlags
+	defaultLabels defaultLabelFlags
 )
 
 func init() {
@@ -93,6 +117,11 @@ Finally, note that spaces are not required between delimiters, just suggested fo
 		"app.labels.float",
 		"Export the label value as a gauge for any app that has a label that matches, exporting the label value as a label named 'value'.\n"+
 			"If the label value cannot be converted to a float, it's dropped instead."+common,
+	)
+	flag.Var(&defaultLabels,
+		"app.labels.default",
+		"For every app considered, default this marathon label to this value if it's not defined.  This should be used in combination \n"+
+			"with -app.labels.* flags- this is a mechanism to provide defaults if the marathon label doesn't exist.",
 	)
 }
 
@@ -152,7 +181,7 @@ func main() {
 		time.Sleep(retryTimeout)
 	}
 
-	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, boolLabels, stringLabels, floatLabels)
+	exporter, err := NewExporter(&scraper{uri}, defaultNamespace, &(defaultLabels.labels), boolLabels, stringLabels, floatLabels)
 	if err != nil {
 		log.Fatalf("failed to create exporter: %s", err)
 	}

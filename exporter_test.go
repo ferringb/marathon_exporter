@@ -31,7 +31,7 @@ func (s *testScraper) Scrape(path string) ([]byte, error) {
 }
 
 func newTestExporter(namespace string) *testExporter {
-	exporter, _ := NewExporter(&testScraper{`{}`}, namespace, nil, nil, nil)
+	exporter, _ := NewExporter(&testScraper{`{}`}, namespace, nil, nil, nil, nil)
 
 	prometheus.MustRegister(exporter)
 	server := httptest.NewServer(prometheus.UninstrumentedHandler())
@@ -72,7 +72,7 @@ func getFunctionName() string {
 }
 
 func export(json string) ([]byte, error) {
-	exporter, _ := NewExporter(&testScraper{json}, "marathon", nil, nil, nil)
+	exporter, _ := NewExporter(&testScraper{json}, "marathon", nil, nil, nil, nil)
 	prometheus.MustRegister(exporter)
 	defer prometheus.Unregister(exporter)
 
